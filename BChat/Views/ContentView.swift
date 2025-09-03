@@ -8,20 +8,31 @@
 import SwiftUI
 
 struct ContentView: View {
-	@EnvironmentObject var bluetoothManager: BluetoothManager
-	
+	@StateObject private var chatViewModel = ChatViewModel()
 	@State private var messageText: String = ""
+	@State private var nickname: String = "anon"
 	
 	var body: some View {
 		VStack {
-			// 연결 상태 및 정보
+			// Nickname setup
+			HStack {
+				TextField("Nickname", text: $nickname)
+					.textFieldStyle(RoundedBorderTextFieldStyle())
+				Button("Set") {
+					chatViewModel.setNickname(nickname)
+				}
+				.buttonStyle(.bordered)
+			}
+			.padding()
+			
+			// Connection status and info
 			ConnectionsView()
 			
-			// 연결된 피어 목록
-			List(bluetoothManager.connectedPeers, id: \.self) { peerID in
+			// Connected peer list
+			List(chatViewModel.connectedPeers, id: \.self) { peerID in
 				HStack {
-					// peerID가 너무 길 수 있으므로 앞 8자리만 표시
-					Text(peerID.prefix(8))
+					// Display only the first 8 characters of peerID as it can be too long
+					Text(chatViewModel.peerNicknames[peerID] ?? "anon")
 						.font(.caption)
 						.foregroundColor(.gray)
 					Spacer()
@@ -30,59 +41,118 @@ struct ContentView: View {
 						.foregroundColor(.green)
 				}
 			}
-			.frame(height: 100) // 목록의 높이 제한
-			.listStyle(PlainListStyle()) // 기본 리스트 스타일
+			.frame(height: 100)
+			.listStyle(PlainListStyle())
 			
 			Divider()
 			
-			// 수신된 메시지
-			ScrollView {
-				VStack(alignment: .leading) {
-					Text(bluetoothManager.receivedMessage)
-						.padding()
-						.background(Color.gray.opacity(0.2))
-						.cornerRadius(8)
+			// Received messages
+			ScrollViewReader { proxy in
+				ScrollView {
+					LazyVStack(alignment: .leading, spacing: 8) {
+						ForEach(chatViewModel.receivedMessages) { message in
+							MessageBubble(message: message)
+								.id(message.id)
+						}
+					}
+					.padding()
 				}
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.padding()
+				.onChange(of: chatViewModel.receivedMessages.count) { _ in
+					// Scroll to the bottom when a new message is added
+					if let lastMessage = chatViewModel.receivedMessages.last {
+						withAnimation(.easeInOut(duration: 0.3)) {
+							proxy.scrollTo(lastMessage.id, anchor: .bottom)
+						}
+					}
+				}
 			}
 			
 			Spacer()
 			
-			// 메시지 입력 및 전송
+			// Message input and sending
 			HStack {
-				TextField("메시지를 입력하세요...", text: $messageText)
+				TextField("Enter message...", text: $messageText)
 					.textFieldStyle(RoundedBorderTextFieldStyle())
 					.padding(.leading)
 				
 				Button(action: {
 					sendMessage()
 				}) {
-					Text("전송")
+					Text("Send")
 						.padding(.horizontal)
 				}
 				.padding(.trailing)
 			}
 			.padding(.bottom)
 		}
-		.navigationTitle("Bluetooth Chat")
+		.navigationTitle("BitChat")
+		.environmentObject(chatViewModel)
 	}
 	
 	private func sendMessage() {
-		bluetoothManager.sendMessage(message: messageText)
+		guard !messageText.isEmpty else { return }
+		chatViewModel.sendMessage(messageText)
 		messageText = ""
 	}
 }
 
 struct ConnectionsView: View {
-	@EnvironmentObject var bluetoothManager: BluetoothManager
+	@EnvironmentObject var chatViewModel: ChatViewModel
 	
 	var body: some View {
 		VStack {
-			Text("연결된 기기: \(bluetoothManager.connectedPeers.count)대")
+			Text("Connected Devices: \(chatViewModel.connectedPeers.count)")
 				.font(.headline)
-				.foregroundColor(bluetoothManager.connectedPeers.isEmpty ? .red : .green)
+				.foregroundColor(chatViewModel.connectedPeers.isEmpty ? .red : .green)
 				.padding(.top)
+			
+			// BLE debug button
+			Button("🔍 Log BLE Status") {
+				chatViewModel.logBLEDebugStatus()
+			}
+			.font(.caption)
+			.padding(.horizontal, 8)
+			.padding(.vertical, 4)
+			.background(Color.blue.opacity(0.1))
+			.foregroundColor(.blue)
+			.cornerRadius(6)
+		}
+	}
+}
+
+struct MessageBubble: View {
+	let message: ChatMessage
+	
+	var body: some View {
+		HStack {
+			if message.isFromSelf {
+				Spacer()
+			}
+			
+			VStack(alignment: message.isFromSelf ? .trailing : .leading) {
+				if !message.isFromSelf {
+					Text(message.senderNickname)
+						.font(.caption)
+						.foregroundColor(.secondary)
+				}
+				
+				Text(message.content)
+					.padding(.horizontal, 12)
+					.padding(.vertical, 8)
+					.background(message.isFromSelf ? Color.blue : Color.gray.opacity(0.3))
+					.foregroundColor(message.isFromSelf ? .white : .primary)
+					.cornerRadius(12)
+				
+				if message.isPrivate {
+					Text("🔒 Private")
+						.font(.caption2)
+						.foregroundColor(.secondary)
+				}
+			}
+			
+			if !message.isFromSelf {
+				Spacer()
+			}
 		}
 	}
 }

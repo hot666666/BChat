@@ -1,3 +1,7 @@
 # Claude-specific files
 .claude/
 CLAUDE.md
+CLAUDE.local.md
+
+# Build artifacts
+build/
