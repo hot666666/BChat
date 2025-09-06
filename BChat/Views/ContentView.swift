@@ -11,148 +11,284 @@ struct ContentView: View {
 	@StateObject private var chatViewModel = ChatViewModel()
 	@State private var messageText: String = ""
 	@State private var nickname: String = "anon"
+	@State private var showSidebar: Bool = false
+	
 	
 	var body: some View {
-		VStack {
-			// Nickname setup
-			HStack {
-				TextField("Nickname", text: $nickname)
-					.textFieldStyle(RoundedBorderTextFieldStyle())
-				Button("Set") {
-					chatViewModel.setNickname(nickname)
+		GeometryReader { geometry in
+			HStack(spacing: 0) {
+				// Main content
+				VStack(spacing: 0) {
+					// Header
+					HeaderView(nickname: $nickname, chatViewModel: chatViewModel, showSidebar: $showSidebar)
+						.frame(height: 30)
+					
+					Divider()
+					
+					// Messages area
+					MessagesView(chatViewModel: chatViewModel)
+					
+					// Input area
+					InputView(messageText: $messageText, chatViewModel: chatViewModel)
 				}
-				.buttonStyle(.bordered)
+				
+				// Sidebar
+				if showSidebar {
+					SidebarView(chatViewModel: chatViewModel, showSidebar: $showSidebar)
+						.frame(width: min(250, geometry.size.width * 0.3))
+						.transition(.move(edge: .trailing))
+				}
 			}
-			.padding()
-			
-			// Connection status and info
-			ConnectionsView()
-			
-			// Connected peer list
-			List(chatViewModel.connectedPeers, id: \.self) { peerID in
+		}
+		.background(Color.black)
+		.animation(.easeInOut(duration: 0.3), value: showSidebar)
+	}
+}
+
+// MARK: - Header View
+struct HeaderView: View {
+	@Binding var nickname: String
+	@ObservedObject var chatViewModel: ChatViewModel
+	@Binding var showSidebar: Bool
+	
+	var body: some View {
+		HStack {
+			// Left side - App name and channel
+			VStack(alignment: .leading, spacing: 0) {
 				HStack {
-					// Display only the first 8 characters of peerID as it can be too long
-					Text(chatViewModel.peerNicknames[peerID] ?? "anon")
-						.font(.caption)
-						.foregroundColor(.gray)
-					Spacer()
-					Circle()
-						.frame(width: 10, height: 10)
+					Text("Bchat/")
+						.font(.system(size: 18, weight: .medium))
 						.foregroundColor(.green)
-				}
-			}
-			.frame(height: 100)
-			.listStyle(PlainListStyle())
-			
-			Divider()
-			
-			// Received messages
-			ScrollViewReader { proxy in
-				ScrollView {
-					LazyVStack(alignment: .leading, spacing: 8) {
-						ForEach(chatViewModel.receivedMessages) { message in
-							MessageBubble(message: message)
-								.id(message.id)
+					
+					TextField("anon", text: $nickname)
+						.font(.system(size: 18, weight: .medium))
+						.foregroundColor(.primary)
+						.textFieldStyle(.plain)
+						.onSubmit {
+							chatViewModel.setNickname(nickname)
 						}
-					}
-					.padding()
-				}
-				.onChange(of: chatViewModel.receivedMessages.count) { _ in
-					// Scroll to the bottom when a new message is added
-					if let lastMessage = chatViewModel.receivedMessages.last {
-						withAnimation(.easeInOut(duration: 0.3)) {
-							proxy.scrollTo(lastMessage.id, anchor: .bottom)
-						}
-					}
 				}
 			}
 			
 			Spacer()
 			
-			// Message input and sending
-			HStack {
-				TextField("Enter message...", text: $messageText)
-					.textFieldStyle(RoundedBorderTextFieldStyle())
-					.padding(.leading)
-				
+			// Right side - People count and menu
+			HStack(spacing: 12) {
 				Button(action: {
-					sendMessage()
+					showSidebar.toggle()
 				}) {
-					Text("Send")
-						.padding(.horizontal)
+					HStack(spacing: 10) {
+						Text("#mesh")
+							.font(.system(size: 14))
+							.foregroundColor(.blue)
+						HStack(spacing: 4) {
+							Image(systemName: "person.2.fill")
+								.font(.system(size: 12))
+							Text("\(chatViewModel.connectedPeers.count)")
+								.font(.system(size: 14, weight: .medium))
+						}
+					}
+					.foregroundColor(.primary)
 				}
-				.padding(.trailing)
+				.buttonStyle(.plain)
 			}
-			.padding(.bottom)
+			.contentShape(.rect)
 		}
-		.navigationTitle("BitChat")
-		.environmentObject(chatViewModel)
+		.padding(.horizontal, 16)
+		.padding(.vertical, 12)
+		.background(Color.clear)
+	}
+}
+
+// MARK: - Messages View
+struct MessagesView: View {
+	@ObservedObject var chatViewModel: ChatViewModel
+	
+	var body: some View {
+		ScrollViewReader { proxy in
+			ScrollView {
+				LazyVStack(alignment: .leading, spacing: 16) {
+					if chatViewModel.receivedMessages.isEmpty {
+						VStack(spacing: 8) {
+							Text("nobody around...")
+								.foregroundColor(.secondary)
+								.font(.system(size: 16))
+						}
+						.frame(maxWidth: .infinity, maxHeight: .infinity)
+						.padding(.top, 100)
+					} else {
+						ForEach(chatViewModel.receivedMessages) { message in
+							MessageBubble(message: message)
+								.id(message.id)
+						}
+					}
+				}
+				.padding(.horizontal, 16)
+				.padding(.top, 8)
+			}
+			.onChange(of: chatViewModel.receivedMessages.count) { _ in
+				if let lastMessage = chatViewModel.receivedMessages.last {
+					withAnimation(.easeInOut(duration: 0.3)) {
+						proxy.scrollTo(lastMessage.id, anchor: .bottom)
+					}
+				}
+			}
+		}
+	}
+}
+
+// MARK: - Input View
+struct InputView: View {
+	@Binding var messageText: String
+	@ObservedObject var chatViewModel: ChatViewModel
+	
+	var body: some View {
+		VStack(spacing: 0) {
+			Divider()
+			
+			HStack(spacing: 12) {
+				TextField("type a message...", text: $messageText)
+					.textFieldStyle(.plain)
+					.padding(.vertical, 12)
+					.onSubmit {
+						sendMessage()
+					}
+				
+				Button(action: sendMessage) {
+					Image(systemName: "arrow.up.circle.fill")
+						.font(.system(size: 24))
+						.foregroundColor(.blue)
+				}
+				.buttonStyle(.plain)
+				.disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+			}
+			.padding(.horizontal, 16)
+			.padding(.vertical, 8)
+		}
+		.background(Color.clear)
 	}
 	
 	private func sendMessage() {
-		guard !messageText.isEmpty else { return }
+		guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 		chatViewModel.sendMessage(messageText)
 		messageText = ""
 	}
 }
 
-struct ConnectionsView: View {
-	@EnvironmentObject var chatViewModel: ChatViewModel
+// MARK: - Sidebar View
+struct SidebarView: View {
+	@ObservedObject var chatViewModel: ChatViewModel
+	@Binding var showSidebar: Bool
 	
 	var body: some View {
-		VStack {
-			Text("Connected Devices: \(chatViewModel.connectedPeers.count)")
-				.font(.headline)
-				.foregroundColor(chatViewModel.connectedPeers.isEmpty ? .red : .green)
-				.padding(.top)
-			
-			// BLE debug button
-			Button("🔍 Log BLE Status") {
-				chatViewModel.logBLEDebugStatus()
+		VStack(spacing: 0) {
+			// Header
+			HStack {
+				Text("PEOPLE")
+					.font(.system(size: 14, weight: .semibold))
+					.foregroundColor(.secondary)
+				
+				Spacer()
+				
+				Button(action: {
+					showSidebar = false
+				}) {
+					Image(systemName: "xmark")
+						.font(.system(size: 12, weight: .medium))
+						.foregroundColor(.secondary)
+				}
+				.buttonStyle(.plain)
 			}
-			.font(.caption)
-			.padding(.horizontal, 8)
-			.padding(.vertical, 4)
-			.background(Color.blue.opacity(0.1))
-			.foregroundColor(.blue)
-			.cornerRadius(6)
+			.padding(.horizontal, 16)
+			.frame(height: 30)
+			
+			Divider()
+			
+			// People list
+			ScrollView {
+				LazyVStack(alignment: .leading, spacing: 12) {
+					ForEach(chatViewModel.connectedPeers, id: \.self) { peerID in
+						PeerRow(peerID: peerID, nickname: chatViewModel.peerNicknames[peerID] ?? "anon")
+					}
+					
+					if chatViewModel.connectedPeers.isEmpty {
+						Text("No peers connected")
+							.font(.system(size: 14))
+							.foregroundColor(.secondary)
+							.padding(.top, 20)
+					}
+				}
+				.padding(.horizontal, 16)
+				.padding(.top, 8)
+			}
+			
+			Spacer()
 		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.background(Color.clear)
+		.overlay(
+			Rectangle()
+				.frame(width: 1)
+				.foregroundColor(Color.separator)
+				.offset(x: -0.5),
+			alignment: .leading
+		)
 	}
 }
+
+// MARK: - Peer Row
+struct PeerRow: View {
+	let peerID: String
+	let nickname: String
+	
+	var body: some View {
+		HStack(spacing: 12) {
+			Circle()
+				.frame(width: 8, height: 8)
+				.foregroundColor(.green)
+			
+			Text(nickname)
+				.font(.system(size: 14))
+				.foregroundColor(.primary)
+			
+			Spacer()
+		}
+		.padding(.vertical, 6)
+		.contentShape(Rectangle())
+	}
+}
+
 
 struct MessageBubble: View {
 	let message: ChatMessage
 	
 	var body: some View {
-		HStack {
-			if message.isFromSelf {
-				Spacer()
+		VStack(alignment: .leading, spacing: 4) {
+			if !message.isFromSelf && !message.content.isEmpty {
+				HStack(spacing: 6) {
+					Text(message.senderNickname)
+						.font(.system(size: 14, weight: .medium))
+						.foregroundColor(.primary)
+					
+					Spacer()
+				}
+				.padding(.leading, 4)
 			}
 			
-			VStack(alignment: message.isFromSelf ? .trailing : .leading) {
-				if !message.isFromSelf {
-					Text(message.senderNickname)
-						.font(.caption)
-						.foregroundColor(.secondary)
-				}
-				
+			if !message.content.isEmpty {
 				Text(message.content)
+					.font(.system(size: 16))
+					.foregroundColor(.primary)
 					.padding(.horizontal, 12)
 					.padding(.vertical, 8)
-					.background(message.isFromSelf ? Color.blue : Color.gray.opacity(0.3))
-					.foregroundColor(message.isFromSelf ? .white : .primary)
+					.background(
+						message.isFromSelf ?
+						Color.blue.opacity(0.15) :
+						Color.secondarySystemBackground
+					)
 					.cornerRadius(12)
-				
-				if message.isPrivate {
-					Text("🔒 Private")
-						.font(.caption2)
-						.foregroundColor(.secondary)
-				}
-			}
-			
-			if !message.isFromSelf {
-				Spacer()
 			}
 		}
+		.frame(maxWidth: .infinity, alignment: message.isFromSelf ? .trailing : .leading)
 	}
 }
